@@ -183,7 +183,7 @@ This driver is provided for educational and legitimate security testing purposes
 ## 🔗 Related Projects
 
 - [Kali NetHunter](https://github.com/ShorterKing/Nethunter-Kernel-Redmi5A-Riva)
-- [RTW88-Android-Drivers]([https://github.com/android/kernel](https://github.com/ShorterKing/RTW88-Android-Drivers))
+- [RTW88-Android-Drivers](https://github.com/ShorterKing/RTW88-Android-Drivers)
 
 ---
 
