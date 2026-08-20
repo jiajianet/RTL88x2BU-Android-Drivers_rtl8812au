@@ -51,7 +51,6 @@ jobs:
           init_repo() {
             repo init -u https://android.googlesource.com/kernel/manifest \
               -b common-${FORMATTED_BRANCH} --depth=1 || return 1
-
             REMOTE_BRANCH=$(git ls-remote https://android.googlesource.com/kernel/common \
               ${FORMATTED_BRANCH} 2>/dev/null || true)
             if [[ -n "$REMOTE_BRANCH" ]] && grep -q deprecated <<< "$REMOTE_BRANCH"; then
@@ -100,16 +99,35 @@ jobs:
             https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 \
             ${{ github.workspace }}/toolchain
 
-      - name: Prepare kernel build (defconfig + modules_prepare)
+      - name: Prepare kernel build (defconfig + modules_prepare) [debug]
         working-directory: ${{ github.workspace }}/kernel/common
         env:
           ARCH: arm64
           CROSS_COMPILE: aarch64-linux-android-
         run: |
-          export PATH=${{ github.workspace }}/toolchain/bin:$PATH
-          echo "验证编译器:"
-          aarch64-linux-android-gcc --version
-          echo "编译器可用，开始 defconfig..."
+          TOOLCHAIN_DIR="${{ github.workspace }}/toolchain"
+          export PATH="$TOOLCHAIN_DIR/bin:$PATH"
+          echo "=== 当前 PATH ==="
+          echo "$PATH"
+          echo "=== toolchain/bin 目录内容 ==="
+          ls -la "$TOOLCHAIN_DIR/bin/" || echo "bin 目录不存在"
+          echo "=== 查找所有 gcc 相关文件 ==="
+          find "$TOOLCHAIN_DIR" -name "*gcc*" -type f 2>/dev/null || echo "未找到 gcc"
+          echo "=== 尝试使用 command -v 查找 ==="
+          if command -v aarch64-linux-android-gcc; then
+            echo "✅ 编译器可用，版本信息："
+            aarch64-linux-android-gcc --version
+          else
+            echo "❌ 未找到 aarch64-linux-android-gcc，尝试查找前缀匹配的编译器"
+            # 尝试查找任何以 aarch64 开头的编译器
+            for f in "$TOOLCHAIN_DIR/bin/aarch64"*; do
+              if [ -x "$f" ]; then
+                echo "找到可执行文件: $f"
+              fi
+            done
+            exit 1
+          fi
+          echo "开始 defconfig..."
           make defconfig
           echo "开始 modules_prepare..."
           make modules_prepare -j$(nproc)
@@ -121,8 +139,7 @@ jobs:
           CROSS_COMPILE: aarch64-linux-android-
           KERNEL_DIR: ${{ github.workspace }}/kernel/common
         run: |
-          export PATH=${{ github.workspace }}/toolchain/bin:$PATH
-          # 启用 Android 平台配置
+          export PATH="${{ github.workspace }}/toolchain/bin:$PATH"
           sed -i 's/^CONFIG_PLATFORM_I386_PC = .*/CONFIG_PLATFORM_I386_PC = n/' Makefile
           sed -i 's/^CONFIG_PLATFORM_ARM_ANDROID = .*/CONFIG_PLATFORM_ARM_ANDROID = y/' Makefile
           echo "开始编译驱动..."
