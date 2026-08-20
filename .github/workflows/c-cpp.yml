@@ -27,13 +27,17 @@ jobs:
       - name: Checkout driver repository
         uses: actions/checkout@v4
 
-      # ==================== 1. 下载 Android 内核源码 ====================
+      # ==================== 1. 安装编译依赖 ====================
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y repo flex bison build-essential libssl-dev
+
+      # ==================== 2. 下载 Android 内核源码 ====================
       - name: Initialize and sync kernel repository
         id: sync_kernel
         working-directory: ${{ github.workspace }}
         env:
-          ANDROID_VERSION: ${{ github.event.inputs.android_version }}
-          KERNEL_VERSION: ${{ github.event.inputs.kernel_version }}
           VERSION: ${{ github.event.inputs.version }}
           OS_PATCH_LEVEL: ${{ github.event.inputs.os_patch_level }}
         run: |
@@ -46,9 +50,6 @@ jobs:
           KERNEL_PART="${VERSION#*-}"            # 5.15
           FORMATTED_BRANCH="${ANDROID_PART}-${KERNEL_PART}-${OS_PATCH_LEVEL}"
           echo "目标分支: common-${FORMATTED_BRANCH}"
-
-          # 安装 repo 工具
-          sudo apt-get update && sudo apt-get install -y repo
 
           init_repo() {
             repo init -u https://android.googlesource.com/kernel/manifest \
@@ -99,36 +100,39 @@ jobs:
             echo "KERNEL_COMMIT_MSG=$(git log -1 --format=%s)" >> $GITHUB_ENV
           fi
 
-      # ==================== 2. 准备交叉编译工具链 ====================
+      # ==================== 3. 下载交叉编译工具链 ====================
       - name: Setup Android GCC toolchain
         run: |
-          # 使用 Android 预置的 aarch64-linux-android- GCC 4.9
+          # 使用 Android 预置的 GCC 4.9
           git clone --depth 1 \
             https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 \
-            toolchain
-          echo "$PWD/toolchain/bin" >> $GITHUB_PATH
+            ${{ github.workspace }}/toolchain
 
-      # ==================== 3. 准备内核构建环境 ====================
+      # ==================== 4. 准备内核构建环境 ====================
       - name: Prepare kernel build (defconfig + modules_prepare)
         working-directory: ${{ github.workspace }}/kernel/common
         env:
           ARCH: arm64
           CROSS_COMPILE: aarch64-linux-android-
+          PATH: ${{ github.workspace }}/toolchain/bin:${{ env.PATH }}
         run: |
+          # 检查编译器是否存在
+          which aarch64-linux-android-gcc
           # 生成默认配置（使用 GKI 配置）
           make defconfig
           # 准备模块编译环境
           make modules_prepare -j$(nproc)
 
-      # ==================== 4. 编译驱动程序 ====================
+      # ==================== 5. 编译驱动程序 ====================
       - name: Compile rtl8812au driver
         working-directory: ${{ github.workspace }}
         env:
           ARCH: arm64
           CROSS_COMPILE: aarch64-linux-android-
           KERNEL_DIR: ${{ github.workspace }}/kernel/common
+          PATH: ${{ github.workspace }}/toolchain/bin:${{ env.PATH }}
         run: |
-          # 修改 Makefile 以启用 Android 平台配置（根据 README）
+          # 修改 Makefile 以启用 Android 平台配置
           sed -i 's/^CONFIG_PLATFORM_I386_PC = .*/CONFIG_PLATFORM_I386_PC = n/' Makefile
           sed -i 's/^CONFIG_PLATFORM_ARM_ANDROID = .*/CONFIG_PLATFORM_ARM_ANDROID = y/' Makefile
 
@@ -138,15 +142,16 @@ jobs:
           # 确认产物
           if [ -f 88x2bu.ko ]; then
             echo "✅ 模块编译成功: 88x2bu.ko"
+            ls -lh 88x2bu.ko
           else
             echo "❌ 未找到 88x2bu.ko" >&2
             exit 1
           fi
 
-      # ==================== 5. 上传编译产物 ====================
+      # ==================== 6. 上传编译产物 ====================
       - name: Upload driver module as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: 88x2bu-ko
+          name: 88x2bu-ko-${{ github.event.inputs.version }}-${{ github.event.inputs.os_patch_level }}
           path: 88x2bu.ko
           if-no-files-found: error
