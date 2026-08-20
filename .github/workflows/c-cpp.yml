@@ -110,7 +110,7 @@ jobs:
         env:
           ARCH: arm64
           CROSS_COMPILE: aarch64-linux-gnu-
-          KERNEL_DIR: ${{ github.workspace }}/kernel/common
+          KERNEL_DIR: ${{ github.workspace }}/kernel/build
         run: |
           # 进入驱动源码目录（假设为 rtl8812au）
           cd rtl8812au
