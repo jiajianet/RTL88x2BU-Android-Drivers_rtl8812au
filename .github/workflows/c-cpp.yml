@@ -110,17 +110,35 @@ jobs:
           CROSS_COMPILE: aarch64-linux-gnu-
           KERNEL_DIR: ${{ github.workspace }}/kernel/common
         run: |
-          # 启用 Android 平台配置
-          sed -i 's/^CONFIG_PLATFORM_I386_PC = .*/CONFIG_PLATFORM_I386_PC = n/' Makefile
-          sed -i 's/^CONFIG_PLATFORM_ARM_ANDROID = .*/CONFIG_PLATFORM_ARM_ANDROID = y/' Makefile
-          make -j$(nproc)
-          if [ -f 88x2bu.ko ]; then
-            echo "✅ 模块编译成功: 88x2bu.ko"
-            ls -lh 88x2bu.ko
-          else
-            echo "❌ 未找到 88x2bu.ko" >&2
+          echo "当前目录: $(pwd)"
+          echo "目录内容:"
+          ls -la
+          # 自动查找 Makefile（可能位于子目录）
+          MAKEFILE_PATH=$(find . -maxdepth 2 -name Makefile -type f | head -n1)
+          if [ -z "$MAKEFILE_PATH" ]; then
+            echo "❌ 未找到 Makefile，退出"
             exit 1
           fi
+          echo "✅ 找到 Makefile: $MAKEFILE_PATH"
+          DRIVER_DIR=$(dirname "$MAKEFILE_PATH")
+          cd "$DRIVER_DIR"
+          echo "切换至驱动目录: $(pwd)"
+          # 按 README 配置平台选项
+          sed -i 's/^CONFIG_PLATFORM_I386_PC = .*/CONFIG_PLATFORM_I386_PC = n/' Makefile
+          sed -i 's/^CONFIG_PLATFORM_ARM_ANDROID = .*/CONFIG_PLATFORM_ARM_ANDROID = y/' Makefile
+          echo "开始编译驱动..."
+          make -j$(nproc)
+          # 查找生成的 .ko 文件
+          KO_FILE=$(find . -name "*.ko" -type f | head -n1)
+          if [ -z "$KO_FILE" ]; then
+            echo "❌ 未找到编译生成的 .ko 文件"
+            exit 1
+          fi
+          echo "✅ 生成的模块: $KO_FILE"
+          ls -lh "$KO_FILE"
+          # 复制到工作区根目录以便上传
+          cp "$KO_FILE" "${{ github.workspace }}/88x2bu.ko"
+          echo "已复制到 ${{ github.workspace }}/88x2bu.ko"
 
       - name: Upload driver module as artifact
         uses: actions/upload-artifact@v4
