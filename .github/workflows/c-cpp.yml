@@ -110,7 +110,7 @@ jobs:
         env:
           ARCH: arm64
           CROSS_COMPILE: aarch64-linux-gnu-
-          KERNEL_DIR: ${{ github.workspace }}/kernel/common
+          KERNEL_DIR: ${{ github.workspace }}
         run: |
           echo "当前目录: $(pwd)"
           MAKEFILE_PATH=$(find . -maxdepth 2 -name Makefile -type f | head -n1)
