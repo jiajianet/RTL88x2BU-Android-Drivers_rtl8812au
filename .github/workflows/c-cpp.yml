@@ -111,7 +111,6 @@ jobs:
           KERNEL_DIR: ${{ github.workspace }}/kernel/common
         run: |
           echo "当前目录: $(pwd)"
-          # 查找驱动 Makefile（可能在子目录中）
           MAKEFILE_PATH=$(find . -maxdepth 2 -name Makefile -type f | head -n1)
           if [ -z "$MAKEFILE_PATH" ]; then
             echo "❌ 未找到 Makefile"
@@ -121,23 +120,24 @@ jobs:
           DRIVER_DIR=$(dirname "$MAKEFILE_PATH")
           cd "$DRIVER_DIR"
           echo "切换至驱动目录: $(pwd)"
-          # 按 README 要求配置平台选项
+          # 按 README 配置平台选项
           sed -i 's/^CONFIG_PLATFORM_I386_PC = .*/CONFIG_PLATFORM_I386_PC = n/' Makefile
           sed -i 's/^CONFIG_PLATFORM_ARM_ANDROID = .*/CONFIG_PLATFORM_ARM_ANDROID = y/' Makefile
-          echo "开始编译驱动..."
-          # 使用 -C 指定内核源码目录，M= 指定驱动源码目录
-          make -C "$KERNEL_DIR" M=$(pwd) ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE modules -j$(nproc)
-          # 查找生成的 .ko 文件
+          echo "开始编译驱动 (详细输出)..."
+          # 使用 V=1 输出完整编译命令，便于调试
+          make -C "$KERNEL_DIR" M=$(pwd) ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE modules -j$(nproc) V=1
+          # 检查生成的 .ko 文件
+          echo "查找 .ko 文件..."
+          find . -name "*.ko" -type f -exec ls -lh {} \;
           KO_FILE=$(find . -name "*.ko" -type f | head -n1)
           if [ -z "$KO_FILE" ]; then
-            echo "❌ 未找到编译生成的 .ko 文件"
+            echo "❌ 未找到 .ko 文件，检查生成的 .o 文件（前10个）"
+            find . -name "*.o" -type f | head -n10
+            echo "可能编译未成功，请检查上述详细输出中的错误。"
             exit 1
           fi
           echo "✅ 生成的模块: $KO_FILE"
-          ls -lh "$KO_FILE"
-          # 复制到根目录以便上传
           cp "$KO_FILE" "${{ github.workspace }}/88x2bu.ko"
-          echo "已复制到 ${{ github.workspace }}/88x2bu.ko"
 
       - name: Upload driver module as artifact
         uses: actions/upload-artifact@v4
