@@ -1,0 +1,152 @@
+name: Build rtl8812au Driver for Android
+
+on:
+  workflow_dispatch:
+    inputs:
+      android_version:
+        description: 'Android 版本 (例如 android13)'
+        required: true
+        default: 'android13'
+      kernel_version:
+        description: '内核主版本 (例如 5.15)'
+        required: true
+        default: '5.15'
+      version:
+        description: '完整版本标识 (例如 android13-5.15)'
+        required: true
+        default: 'android13-5.15'
+      os_patch_level:
+        description: '安全补丁级别 (例如 2025-12)'
+        required: true
+        default: '2025-12'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout driver repository
+        uses: actions/checkout@v4
+
+      # ==================== 1. 下载 Android 内核源码 ====================
+      - name: Initialize and sync kernel repository
+        id: sync_kernel
+        working-directory: ${{ github.workspace }}
+        env:
+          ANDROID_VERSION: ${{ github.event.inputs.android_version }}
+          KERNEL_VERSION: ${{ github.event.inputs.kernel_version }}
+          VERSION: ${{ github.event.inputs.version }}
+          OS_PATCH_LEVEL: ${{ github.event.inputs.os_patch_level }}
+        run: |
+          set -euo pipefail
+          mkdir -p kernel
+          cd kernel
+
+          # 组装分支名称
+          ANDROID_PART="${VERSION%-*}"           # android13
+          KERNEL_PART="${VERSION#*-}"            # 5.15
+          FORMATTED_BRANCH="${ANDROID_PART}-${KERNEL_PART}-${OS_PATCH_LEVEL}"
+          echo "目标分支: common-${FORMATTED_BRANCH}"
+
+          # 安装 repo 工具
+          sudo apt-get update && sudo apt-get install -y repo
+
+          init_repo() {
+            repo init -u https://android.googlesource.com/kernel/manifest \
+              -b common-${FORMATTED_BRANCH} --depth=1 || return 1
+
+            # 检查是否为 deprecated 分支
+            REMOTE_BRANCH=$(git ls-remote https://android.googlesource.com/kernel/common \
+              ${FORMATTED_BRANCH} 2>/dev/null || true)
+            if [[ -n "$REMOTE_BRANCH" ]] && grep -q deprecated <<< "$REMOTE_BRANCH"; then
+              sed -i "s/\"${FORMATTED_BRANCH}\"/\"deprecated\/${FORMATTED_BRANCH}\"/g" \
+                .repo/manifests/default.xml
+              echo "⚠️  分支 common-${FORMATTED_BRANCH} 已弃用，使用 deprecated/ 路径"
+            fi
+            return 0
+          }
+
+          # 重试机制
+          MAX_RETRIES=3
+          for attempt in $(seq 1 $MAX_RETRIES); do
+            echo "尝试 $attempt/$MAX_RETRIES 初始化 repo..."
+            if init_repo; then
+              echo "repo init 成功，开始同步..."
+              if timeout 15m repo sync -c --current-branch --no-clone-bundle --no-tags \
+                --jobs-checkout=4 -j4; then
+                echo "内核源码同步完成"
+                break
+              else
+                echo "repo sync 失败"
+              fi
+            else
+              echo "repo init 失败"
+            fi
+            if [ $attempt -lt $MAX_RETRIES ]; then
+              echo "清理并重试..."
+              rm -rf .repo
+              sleep 15
+            else
+              echo "所有重试均失败" >&2
+              exit 1
+            fi
+          done
+
+          # 记录内核提交信息
+          cd common
+          if [ -d .git ]; then
+            echo "KERNEL_COMMIT_SHA=$(git rev-parse HEAD)" >> $GITHUB_ENV
+            echo "KERNEL_COMMIT_DATE=$(git log -1 --format=%cI)" >> $GITHUB_ENV
+            echo "KERNEL_COMMIT_MSG=$(git log -1 --format=%s)" >> $GITHUB_ENV
+          fi
+
+      # ==================== 2. 准备交叉编译工具链 ====================
+      - name: Setup Android GCC toolchain
+        run: |
+          # 使用 Android 预置的 aarch64-linux-android- GCC 4.9
+          git clone --depth 1 \
+            https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 \
+            toolchain
+          echo "$PWD/toolchain/bin" >> $GITHUB_PATH
+
+      # ==================== 3. 准备内核构建环境 ====================
+      - name: Prepare kernel build (defconfig + modules_prepare)
+        working-directory: ${{ github.workspace }}/kernel/common
+        env:
+          ARCH: arm64
+          CROSS_COMPILE: aarch64-linux-android-
+        run: |
+          # 生成默认配置（使用 GKI 配置）
+          make defconfig
+          # 准备模块编译环境
+          make modules_prepare -j$(nproc)
+
+      # ==================== 4. 编译驱动程序 ====================
+      - name: Compile rtl8812au driver
+        working-directory: ${{ github.workspace }}
+        env:
+          ARCH: arm64
+          CROSS_COMPILE: aarch64-linux-android-
+          KERNEL_DIR: ${{ github.workspace }}/kernel/common
+        run: |
+          # 修改 Makefile 以启用 Android 平台配置（根据 README）
+          sed -i 's/^CONFIG_PLATFORM_I386_PC = .*/CONFIG_PLATFORM_I386_PC = n/' Makefile
+          sed -i 's/^CONFIG_PLATFORM_ARM_ANDROID = .*/CONFIG_PLATFORM_ARM_ANDROID = y/' Makefile
+
+          # 编译
+          make -j$(nproc)
+
+          # 确认产物
+          if [ -f 88x2bu.ko ]; then
+            echo "✅ 模块编译成功: 88x2bu.ko"
+          else
+            echo "❌ 未找到 88x2bu.ko" >&2
+            exit 1
+          fi
+
+      # ==================== 5. 上传编译产物 ====================
+      - name: Upload driver module as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: 88x2bu-ko
+          path: 88x2bu.ko
+          if-no-files-found: error
