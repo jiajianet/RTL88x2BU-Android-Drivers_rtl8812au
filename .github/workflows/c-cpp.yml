@@ -112,28 +112,6 @@ jobs:
           CROSS_COMPILE: aarch64-linux-gnu-
           KERNEL_DIR: ${{ github.workspace }}/kernel/common
         run: |
-          echo "当前目录: $(pwd)"
-          MAKEFILE_PATH=$(find . -maxdepth 2 -name Makefile -type f | head -n1)
-          if [ -z "$MAKEFILE_PATH" ]; then
-            echo "❌ 未找到 Makefile"
-            exit 1
-          fi
-          echo "✅ 找到 Makefile: $MAKEFILE_PATH"
-          cd "./rtl8812au"
-          echo "切换至驱动目录: $(pwd)"
-
-          # 启用 RTL8812AU
-          sed -i 's/^CONFIG_RTL8812A = .*/CONFIG_RTL8812A = y/' Makefile
-          sed -i 's/^CONFIG_RTL8822B = .*/CONFIG_RTL8822B = n/' Makefile
-
-          # 平台配置
-          sed -i 's/^CONFIG_PLATFORM_I386_PC = .*/CONFIG_PLATFORM_I386_PC = n/' Makefile
-          sed -i 's/^CONFIG_PLATFORM_ARM_ANDROID = .*/CONFIG_PLATFORM_ARM_ANDROID = y/' Makefile
-
-          # 禁用警告转错误
-          if ! grep -q "Wno-error" Makefile; then
-            sed -i '/^ccflags-y +=/a ccflags-y += -Wno-error' Makefile
-          fi
 
           echo "开始编译驱动..."
           make -j$(nproc)
