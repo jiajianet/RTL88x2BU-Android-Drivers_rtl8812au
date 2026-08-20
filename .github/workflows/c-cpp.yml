@@ -119,8 +119,7 @@ jobs:
             exit 1
           fi
           echo "✅ 找到 Makefile: $MAKEFILE_PATH"
-          DRIVER_DIR=$(dirname "$MAKEFILE_PATH")
-          cd "$DRIVER_DIR"
+          cd "$MAKEFILE_PATH"
           echo "切换至驱动目录: $(pwd)"
 
           # 启用 RTL8812AU
