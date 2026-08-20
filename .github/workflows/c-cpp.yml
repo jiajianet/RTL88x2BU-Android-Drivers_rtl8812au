@@ -110,14 +110,24 @@ jobs:
         env:
           ARCH: arm64
           CROSS_COMPILE: aarch64-linux-gnu-
-          KERNEL_DIR: ${{ github.workspace }}/kernel/build
+          KERNEL_DIR: ${{ github.workspace }}/kernel/common
         run: |
-          # 进入驱动源码目录（假设为 rtl8812au）
           cd rtl8812au
           echo "当前目录: $(pwd)"
+          echo "=== 检查 obj-m 定义 ==="
+          grep '^obj-m' Makefile || echo "未找到 obj-m"
+
+          if ! grep -q '^obj-m' Makefile; then
+            echo "obj-m 未定义，正在添加..."
+            echo 'obj-m += rtl8812au.o' >> Makefile
+            echo 'rtl8812au-objs := $(_OS_INTFS_FILES) $(_HAL_INTFS_FILES)' >> Makefile
+          fi
+
+          echo "=== 修改后的 obj-m 定义 ==="
+          grep -E '^obj-m|rtl8812au-objs' Makefile
+
           echo "开始编译驱动..."
-          # 关键修正：使用 -C 指定内核目录，M= 指定当前驱动目录
-          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -C "$KERNEL_DIR" M=$(pwd) modules -j$(nproc) V=1
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CONFIG_RTL8812AU=y -C "$KERNEL_DIR" M=$(pwd) modules -j$(nproc) V=1
 
           echo "查找 .ko 文件..."
           find . -name "*.ko" -type f -exec ls -lh {} \;
