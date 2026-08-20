@@ -27,13 +27,11 @@ jobs:
       - name: Checkout driver repository
         uses: actions/checkout@v4
 
-      # ==================== 1. 安装编译依赖 ====================
       - name: Install build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y repo flex bison build-essential libssl-dev
 
-      # ==================== 2. 下载 Android 内核源码 ====================
       - name: Initialize and sync kernel repository
         id: sync_kernel
         working-directory: ${{ github.workspace }}
@@ -45,9 +43,8 @@ jobs:
           mkdir -p kernel
           cd kernel
 
-          # 组装分支名称
-          ANDROID_PART="${VERSION%-*}"           # android13
-          KERNEL_PART="${VERSION#*-}"            # 5.15
+          ANDROID_PART="${VERSION%-*}"
+          KERNEL_PART="${VERSION#*-}"
           FORMATTED_BRANCH="${ANDROID_PART}-${KERNEL_PART}-${OS_PATCH_LEVEL}"
           echo "目标分支: common-${FORMATTED_BRANCH}"
 
@@ -55,7 +52,6 @@ jobs:
             repo init -u https://android.googlesource.com/kernel/manifest \
               -b common-${FORMATTED_BRANCH} --depth=1 || return 1
 
-            # 检查是否为 deprecated 分支
             REMOTE_BRANCH=$(git ls-remote https://android.googlesource.com/kernel/common \
               ${FORMATTED_BRANCH} 2>/dev/null || true)
             if [[ -n "$REMOTE_BRANCH" ]] && grep -q deprecated <<< "$REMOTE_BRANCH"; then
@@ -66,7 +62,6 @@ jobs:
             return 0
           }
 
-          # 重试机制
           MAX_RETRIES=3
           for attempt in $(seq 1 $MAX_RETRIES); do
             echo "尝试 $attempt/$MAX_RETRIES 初始化 repo..."
@@ -92,7 +87,6 @@ jobs:
             fi
           done
 
-          # 记录内核提交信息
           cd common
           if [ -d .git ]; then
             echo "KERNEL_COMMIT_SHA=$(git rev-parse HEAD)" >> $GITHUB_ENV
@@ -100,46 +94,39 @@ jobs:
             echo "KERNEL_COMMIT_MSG=$(git log -1 --format=%s)" >> $GITHUB_ENV
           fi
 
-      # ==================== 3. 下载交叉编译工具链 ====================
       - name: Setup Android GCC toolchain
         run: |
-          # 使用 Android 预置的 GCC 4.9
           git clone --depth 1 \
             https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 \
             ${{ github.workspace }}/toolchain
 
-      # ==================== 4. 准备内核构建环境 ====================
       - name: Prepare kernel build (defconfig + modules_prepare)
         working-directory: ${{ github.workspace }}/kernel/common
         env:
           ARCH: arm64
           CROSS_COMPILE: aarch64-linux-android-
-          PATH: ${{ github.workspace }}/toolchain/bin:${{ env.PATH }}
         run: |
-          # 检查编译器是否存在
-          which aarch64-linux-android-gcc
-          # 生成默认配置（使用 GKI 配置）
+          export PATH=${{ github.workspace }}/toolchain/bin:$PATH
+          echo "验证编译器:"
+          aarch64-linux-android-gcc --version
+          echo "编译器可用，开始 defconfig..."
           make defconfig
-          # 准备模块编译环境
+          echo "开始 modules_prepare..."
           make modules_prepare -j$(nproc)
 
-      # ==================== 5. 编译驱动程序 ====================
       - name: Compile rtl8812au driver
         working-directory: ${{ github.workspace }}
         env:
           ARCH: arm64
           CROSS_COMPILE: aarch64-linux-android-
           KERNEL_DIR: ${{ github.workspace }}/kernel/common
-          PATH: ${{ github.workspace }}/toolchain/bin:${{ env.PATH }}
         run: |
-          # 修改 Makefile 以启用 Android 平台配置
+          export PATH=${{ github.workspace }}/toolchain/bin:$PATH
+          # 启用 Android 平台配置
           sed -i 's/^CONFIG_PLATFORM_I386_PC = .*/CONFIG_PLATFORM_I386_PC = n/' Makefile
           sed -i 's/^CONFIG_PLATFORM_ARM_ANDROID = .*/CONFIG_PLATFORM_ARM_ANDROID = y/' Makefile
-
-          # 编译
+          echo "开始编译驱动..."
           make -j$(nproc)
-
-          # 确认产物
           if [ -f 88x2bu.ko ]; then
             echo "✅ 模块编译成功: 88x2bu.ko"
             ls -lh 88x2bu.ko
@@ -148,7 +135,6 @@ jobs:
             exit 1
           fi
 
-      # ==================== 6. 上传编译产物 ====================
       - name: Upload driver module as artifact
         uses: actions/upload-artifact@v4
         with:
