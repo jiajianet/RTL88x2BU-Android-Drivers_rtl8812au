@@ -110,7 +110,7 @@ jobs:
         env:
           ARCH: arm64
           CROSS_COMPILE: aarch64-linux-gnu-
-          KERNEL_DIR: ${{ github.workspace }}
+          KERNEL_DIR: ${{ github.workspace }}/kernel/common
         run: |
           echo "当前目录: $(pwd)"
           MAKEFILE_PATH=$(find . -maxdepth 2 -name Makefile -type f | head -n1)
@@ -136,8 +136,8 @@ jobs:
             sed -i '/^ccflags-y +=/a ccflags-y += -Wno-error' Makefile
           fi
 
-          echo "开始编译驱动 (传递 KERNELDIR)..."
-          make KERNELDIR="$KERNEL_DIR" -j$(nproc) V=1
+          echo "开始编译驱动..."
+          make -j$(nproc)
 
           echo "查找 .ko 文件..."
           find . -name "*.ko" -type f -exec ls -lh {} \;
