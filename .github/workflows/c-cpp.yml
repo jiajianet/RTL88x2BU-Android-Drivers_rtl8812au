@@ -112,7 +112,9 @@ jobs:
           CROSS_COMPILE: aarch64-linux-gnu-
           KERNEL_DIR: ${{ github.workspace }}/kernel/common
         run: |
-
+          ls -a
+          cd ./rtl8812au
+          ls -a
           echo "开始编译驱动..."
           make -j$(nproc)
 
