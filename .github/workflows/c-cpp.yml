@@ -123,33 +123,34 @@ jobs:
           cd "$DRIVER_DIR"
           echo "切换至驱动目录: $(pwd)"
 
-          # 显示 Makefile 内容（前50行）以便调试
-          echo "=== Makefile 内容（前50行）==="
-          head -n 50 Makefile
+          # 1. 修改芯片配置：启用 RTL8812AU，禁用 RTL8822B
+          sed -i 's/^CONFIG_RTL8812A = .*/CONFIG_RTL8812A = y/' Makefile
+          sed -i 's/^CONFIG_RTL8822B = .*/CONFIG_RTL8822B = n/' Makefile
 
-          # 检查是否定义了 obj-m
-          if ! grep -q 'obj-m' Makefile; then
-            echo "⚠️  Makefile 中未找到 obj-m，尝试自动添加默认目标"
-            # 在文件开头添加 obj-m += 88x2bu.o（假设模块名为 88x2bu）
+          # 2. 添加 -Wno-error 以禁用警告转错误（覆盖内核的 -Werror）
+          if ! grep -q "Wno-error" Makefile; then
+            sed -i '/^ccflags-y +=/a ccflags-y += -Wno-error' Makefile
+          fi
+
+          # 3. 确保 obj-m 目标存在（若缺失则添加）
+          if ! grep -q '^obj-m' Makefile; then
             sed -i '1i obj-m += 88x2bu.o' Makefile
           fi
 
-          # 按 README 配置平台选项
+          # 4. 按 README 配置平台选项
           sed -i 's/^CONFIG_PLATFORM_I386_PC = .*/CONFIG_PLATFORM_I386_PC = n/' Makefile
           sed -i 's/^CONFIG_PLATFORM_ARM_ANDROID = .*/CONFIG_PLATFORM_ARM_ANDROID = y/' Makefile
 
           echo "开始编译驱动 (详细输出)..."
           make -C "$KERNEL_DIR" M=$(pwd) ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE modules -j$(nproc) V=1
 
-          # 查找生成的 .ko 文件
+          # 查找生成的 .ko
           echo "查找 .ko 文件..."
           find . -name "*.ko" -type f -exec ls -lh {} \;
           KO_FILE=$(find . -name "*.ko" -type f | head -n1)
           if [ -z "$KO_FILE" ]; then
-            echo "❌ 未找到 .ko 文件，检查是否生成了 .o 文件："
+            echo "❌ 未找到 .ko 文件，检查 .o 文件："
             find . -name "*.o" -type f | head -n20
-            echo "编译日志最后50行："
-            tail -n 50 "${{ github.workspace }}/kernel/common/build.log" 2>/dev/null || echo "无日志文件"
             exit 1
           fi
           echo "✅ 生成的模块: $KO_FILE"
