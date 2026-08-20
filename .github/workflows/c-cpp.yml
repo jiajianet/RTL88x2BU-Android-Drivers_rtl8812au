@@ -112,11 +112,12 @@ jobs:
           CROSS_COMPILE: aarch64-linux-gnu-
           KERNEL_DIR: ${{ github.workspace }}/kernel/common
         run: |
-          ls ./kernel
-          cd ./rtl8812au
-          ls -a
+          # 进入驱动源码目录（假设为 rtl8812au）
+          cd rtl8812au
+          echo "当前目录: $(pwd)"
           echo "开始编译驱动..."
-          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -C modules
+          # 关键修正：使用 -C 指定内核目录，M= 指定当前驱动目录
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -C "$KERNEL_DIR" M=$(pwd) modules -j$(nproc) V=1
 
           echo "查找 .ko 文件..."
           find . -name "*.ko" -type f -exec ls -lh {} \;
