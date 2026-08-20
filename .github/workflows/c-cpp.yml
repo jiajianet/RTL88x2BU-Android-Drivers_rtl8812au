@@ -93,7 +93,7 @@ jobs:
             echo "KERNEL_COMMIT_MSG=$(git log -1 --format=%s)" >> $GITHUB_ENV
           fi
 
-      - name: Prepare kernel build (defconfig + modules_prepare)
+      - name: Prepare kernel build (defconfig + prepare + modules_prepare)
         working-directory: ${{ github.workspace }}/kernel/common
         env:
           ARCH: arm64
@@ -101,6 +101,8 @@ jobs:
         run: |
           aarch64-linux-gnu-gcc --version
           make defconfig
+          make oldconfig
+          make prepare
           make modules_prepare -j$(nproc)
 
       - name: Compile rtl8812au driver
@@ -120,20 +122,34 @@ jobs:
           DRIVER_DIR=$(dirname "$MAKEFILE_PATH")
           cd "$DRIVER_DIR"
           echo "切换至驱动目录: $(pwd)"
+
+          # 显示 Makefile 内容（前50行）以便调试
+          echo "=== Makefile 内容（前50行）==="
+          head -n 50 Makefile
+
+          # 检查是否定义了 obj-m
+          if ! grep -q 'obj-m' Makefile; then
+            echo "⚠️  Makefile 中未找到 obj-m，尝试自动添加默认目标"
+            # 在文件开头添加 obj-m += 88x2bu.o（假设模块名为 88x2bu）
+            sed -i '1i obj-m += 88x2bu.o' Makefile
+          fi
+
           # 按 README 配置平台选项
           sed -i 's/^CONFIG_PLATFORM_I386_PC = .*/CONFIG_PLATFORM_I386_PC = n/' Makefile
           sed -i 's/^CONFIG_PLATFORM_ARM_ANDROID = .*/CONFIG_PLATFORM_ARM_ANDROID = y/' Makefile
+
           echo "开始编译驱动 (详细输出)..."
-          # 使用 V=1 输出完整编译命令，便于调试
           make -C "$KERNEL_DIR" M=$(pwd) ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE modules -j$(nproc) V=1
-          # 检查生成的 .ko 文件
+
+          # 查找生成的 .ko 文件
           echo "查找 .ko 文件..."
           find . -name "*.ko" -type f -exec ls -lh {} \;
           KO_FILE=$(find . -name "*.ko" -type f | head -n1)
           if [ -z "$KO_FILE" ]; then
-            echo "❌ 未找到 .ko 文件，检查生成的 .o 文件（前10个）"
-            find . -name "*.o" -type f | head -n10
-            echo "可能编译未成功，请检查上述详细输出中的错误。"
+            echo "❌ 未找到 .ko 文件，检查是否生成了 .o 文件："
+            find . -name "*.o" -type f | head -n20
+            echo "编译日志最后50行："
+            tail -n 50 "${{ github.workspace }}/kernel/common/build.log" 2>/dev/null || echo "无日志文件"
             exit 1
           fi
           echo "✅ 生成的模块: $KO_FILE"
