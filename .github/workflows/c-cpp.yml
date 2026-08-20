@@ -136,11 +136,9 @@ jobs:
             sed -i '/^ccflags-y +=/a ccflags-y += -Wno-error' Makefile
           fi
 
-          echo "开始编译驱动 (直接 make)..."
-          # 直接 make，不指定 -C
-          make -j$(nproc) V=1
+          echo "开始编译驱动 (传递 KERNELDIR)..."
+          make KERNELDIR="$KERNEL_DIR" -j$(nproc) V=1
 
-          # 查找生成的 .ko
           echo "查找 .ko 文件..."
           find . -name "*.ko" -type f -exec ls -lh {} \;
           KO_FILE=$(find . -name "*.ko" -type f | head -n1)
