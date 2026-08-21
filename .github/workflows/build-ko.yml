@@ -1,0 +1,19 @@
+name: Build LKM for Re:Kernel
+on:
+  push:
+    paths:
+      - '**'
+      - '.github/workflows/ddk-lkm.yml'
+      - '.github/workflows/build-lkm.yml'
+  workflow_dispatch:
+jobs:
+  build-lkm:
+    strategy:
+      matrix:
+        include:
+          - kmi: android13-5.15
+            ddk_release: '20260313'
+    uses: ./.github/workflows/ddk-lkm.yml
+    with:
+      kmi: ${{ matrix.kmi }}
+      ddk_release: ${{ matrix.ddk_release }}
