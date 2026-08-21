@@ -1,0 +1,87 @@
+name: Build Re:Kernel Kernel Module
+
+on:
+  workflow_call:
+    inputs:
+      kmi:
+        description: 'KMI version'
+        required: true
+        type: string
+      ddk_release:
+        description: 'DDK release version'
+        required: false
+        default: '20260313'
+        type: string
+      version:
+        description: 'Re:Kernel version'
+        required: false
+        default: 'snapshot'
+        type: string
+
+jobs:
+  build-rekernel-ko:
+    name: Build rekernel.ko for ${{ inputs.kmi }}-${{ inputs.ddk_release }}
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/ylarod/ddk:${{ inputs.kmi }}-${{ inputs.ddk_release }}
+      options: --privileged
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v6
+
+      - name: Build rekernel.ko
+        run: |
+          KMI=${{ inputs.kmi }}
+          
+          echo "=== Building rekernel.ko for KMI: $KMI ==="
+
+          # 将源码复制到内核树中的 binder 目录（保留原有逻辑）
+          cp ./rtl8812au/*.c ./rtl8812au/*.h /opt/ddk/src/$KMI/drivers/android/
+          cat ./Makefile >> /opt/ddk/src/$KMI/drivers/android/Makefile
+
+          # 执行内核模块编译
+          cd /opt/ddk/src/$KMI
+          make -C /opt/ddk/kdir/$KMI \
+            M=/opt/ddk/src/$KMI/drivers/android \
+            CONFIG_REKERNEL=m \
+            CC="clang" \
+            REKERNEL_VERSION="${{ inputs.version }}" \
+            modules
+
+          echo "=== Build completed ==="
+
+          # ---- 新增：批量处理所有 .ko 模块 ----
+          # 创建输出目录
+          OUT_DIR="/github/workspace/out"
+          mkdir -p "$OUT_DIR"
+
+          # 查找所有生成的 .ko 文件（递归）
+          KO_FILES=$(find /opt/ddk/src/$KMI/drivers/android/ -name "*.ko" -type f)
+
+          if [ -z "$KO_FILES" ]; then
+            echo "ERROR: No .ko files found!"
+            exit 1
+          fi
+
+          echo "Found .ko files:"
+          echo "$KO_FILES"
+
+          # 批量复制并执行 llvm-strip（调试信息剥离）
+          for ko in $KO_FILES; do
+            filename=$(basename "$ko")
+            dest="$OUT_DIR/$filename"
+            cp "$ko" "$dest"
+            echo "Stripping $dest ..."
+            llvm-strip -d "$dest"
+          done
+
+          # 列出最终产物
+          ls -la "$OUT_DIR"
+
+      - name: Upload all kernel modules as artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: rtl-driver-modules-${{ inputs.kmi }}-${{ inputs.ddk_release }}
+          path: /github/workspace/out
+          if-no-files-found: error
